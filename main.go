@@ -3,7 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"github.com/go-playground/validator/v10"
+	"github.com/spf13/viper"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -29,10 +30,38 @@ type Command struct {
 	Data interface{}
 }
 
+type Config struct {
+	Directory     string `mapstructure:"directory" validate:"required,dir"`
+	CheckInterval int    `mapstructure:"check_interval" validate:"required,min=1"`
+	QueueSize     int    `mapstructure:"queue_size" validate:"required,min=1"`
+}
+
 var (
-	commandQueue = make(chan Command, 100)
-	directory    = "/home/nate/Desktop/test" // monitoring files directory
+	commandQueue chan Command
+	config       Config
 )
+
+// loadConfig - yaml file with viper and validate
+func loadConfig() error {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yaml")
+	viper.AddConfigPath(".")
+
+	if err := viper.ReadInConfig(); err != nil {
+		return fmt.Errorf("error reading config file - %w", err)
+	}
+
+	if err := viper.Unmarshal(&config); err != nil {
+		return fmt.Errorf("error unmarshalling config - %w", err)
+	}
+
+	validate := validator.New()
+	if err := validate.Struct(config); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 func main() {
 	//api end points
@@ -45,6 +74,15 @@ func main() {
 	//if err := http.ListenAndServe(":4000", mux); err != nil {
 	//	log.Fatal(err)
 	//}
+
+	// load config
+	if err := loadConfig(); err != nil {
+		fmt.Println("Error loading config:", err)
+		return
+	}
+
+	//update commandQueue and using config queue size
+	commandQueue = make(chan Command, config.QueueSize)
 
 	var wg sync.WaitGroup
 	wg.Add(2) //specify my two threads
@@ -62,21 +100,6 @@ func main() {
 	}()
 
 	wg.Wait()
-
-	// fetch all files in this directory
-	files, err := ioutil.ReadDir(directory)
-	if err != nil {
-		fmt.Println("Error reading directory:", err)
-		return
-	}
-
-	//range fetching all files
-	for _, file := range files {
-		if !file.IsDir() {
-			fullPath := filepath.Join(directory, file.Name())
-			fetchFileInfo(fullPath)
-		}
-	}
 }
 
 // fetchFileInfo - get file info from querying the path returning fileInfo
@@ -138,12 +161,12 @@ timeThread - this runs every minute checking all files in the specified director
 */
 func timerThread() {
 	//check this thread every minute
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(time.Duration(config.CheckInterval) * time.Second)
 	defer ticker.Stop()
 
 	for {
 		<-ticker.C
-		files, err := filepath.Glob(filepath.Join(directory, "*"))
+		files, err := filepath.Glob(filepath.Join(config.Directory, "*"))
 		if err != nil {
 			fmt.Println("Error reading directory:", err)
 			continue
