@@ -1,3 +1,4 @@
 directory: "/home/nate/Desktop"
 check_interval: 60
 queue_size: 100
+port: 4000

@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"github.com/go-playground/validator/v10"
 	"github.com/spf13/viper"
+	"log"
+	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -34,11 +37,15 @@ type Config struct {
 	Directory     string `mapstructure:"directory" validate:"required,dir"`
 	CheckInterval int    `mapstructure:"check_interval" validate:"required,min=1"`
 	QueueSize     int    `mapstructure:"queue_size" validate:"required,min=1"`
+	Port          int    `mapstructure:"port" validate:"required,min=1,max=65535"`
 }
 
 var (
 	commandQueue chan Command
 	config       Config
+	logFile      *os.File
+	logBuffer    = make([]FileInfo, 0, 1000) // buffer for last 1000 entries
+	logBufferMu  sync.RWMutex
 )
 
 // loadConfig - yaml file with viper and validate
@@ -64,28 +71,20 @@ func loadConfig() error {
 }
 
 func main() {
-	//api end points
-	//mux := http.NewServeMux()
-	//
-	//mux.HandleFunc("/v1/health", handleCheckStatus)
-	//mux.HandleFunc("/v1/logs", handleLogs)
-	//mux.HandleFunc("/v1/help", handleHelpCommands)
-	//
-	//if err := http.ListenAndServe(":4000", mux); err != nil {
-	//	log.Fatal(err)
-	//}
-
 	// load config
 	if err := loadConfig(); err != nil {
 		fmt.Println("Error loading config:", err)
 		return
 	}
 
+	setupLogging()
+	defer logFile.Close()
+
 	//update commandQueue and using config queue size
 	commandQueue = make(chan Command, config.QueueSize)
 
 	var wg sync.WaitGroup
-	wg.Add(2) //specify my two threads
+	wg.Add(3) //specify my two threads
 
 	// start worker thread (running continuous executing available commands)
 	go func() {
@@ -99,12 +98,17 @@ func main() {
 		timerThread()
 	}()
 
+	// start HTTP server
+	go func() {
+		defer wg.Done()
+		startHTTPServer()
+	}()
+
 	wg.Wait()
 }
 
 // fetchFileInfo - get file info from querying the path returning fileInfo
 func fetchFileInfo(filePath string) *FileInfo {
-
 	// osquery query and command run
 	query := fmt.Sprintf("SELECT uid, path, directory, filename, mtime, atime, ctime, size, type, mode FROM file WHERE path = '%s';", filePath)
 	cmd := exec.Command("osqueryi", "--json", query)
@@ -131,6 +135,33 @@ func fetchFileInfo(filePath string) *FileInfo {
 	return nil
 }
 
+// logging to file
+func setupLogging() {
+	var err error
+	logFile, err = os.OpenFile("file_monitor.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.SetOutput(logFile)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+}
+
+// log to file and in-memory
+func logFileInfo(fileInfo FileInfo) {
+	log.Printf("Uuid: %s\nPath: %s\nDirectory: %s\nFilename: %s\nLast Modified: %s\nLast Visit: %s\nLast Change: %s\nSize: %s\nType: %s\nMode: %s\n\n",
+		fileInfo.Uuid, fileInfo.Path, fileInfo.Directory, fileInfo.Filename, fileInfo.Mtime, fileInfo.ATime, fileInfo.CTime, fileInfo.Size, fileInfo.Type, fileInfo.Mode)
+
+	//mutex to ensure safe thread access
+	logBufferMu.Lock()
+	defer logBufferMu.Unlock()
+
+	if len(logBuffer) >= 1000 {
+		logBuffer = logBuffer[1:]
+	}
+	logBuffer = append(logBuffer, fileInfo)
+}
+
 /*
 * workerThread - this loops through the commands in queue and is to run continuous listening to any commandQueue
  */
@@ -144,8 +175,7 @@ func workerThread() {
 				fileInfo := fetchFileInfo(filePath)
 				if fileInfo != nil {
 					// print the result file information
-					fmt.Printf("Uuid: %s\nPath: %s\nDirectory: %s\nFilename: %s\nLast Modified: %s\nLast Visit: %s\nLast Change: %s\nSize: %s\nType: %s\nMode: %s\n\n",
-						fileInfo.Uuid, fileInfo.Path, fileInfo.Directory, fileInfo.Filename, fileInfo.Mtime, fileInfo.ATime, fileInfo.CTime, fileInfo.Size, fileInfo.Type, fileInfo.Mode)
+					logFileInfo(*fileInfo)
 				}
 			}
 		default:
@@ -180,4 +210,30 @@ func timerThread() {
 			}
 		}
 	}
+}
+
+// server
+func startHTTPServer() {
+	http.HandleFunc("/health", healthCheckHandler)
+	http.HandleFunc("/logs", logsHandler)
+
+	log.Printf("Starting HTTP server on port %d\n", config.Port)
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// healthCheckHandler - check system health
+func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+// logsHandler - handle logs
+func logsHandler(w http.ResponseWriter, r *http.Request) {
+	logBufferMu.RLock()
+	defer logBufferMu.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(logBuffer)
 }
