@@ -84,13 +84,16 @@ type CommandInfo struct {
 }
 
 var (
-	commandQueue chan Command
-	config       Config
-	logFile      *os.File
-	logBuffer    = make([]FileInfo, 0, 1000) // buffer for last 1000 entries
-	logBufferMu  sync.RWMutex
-	httpClient   = &http.Client{Timeout: 10 * time.Second}
-	notAFile     = errors.New("invalid file path, must be a file")
+	commandQueue   chan Command
+	config         Config
+	logFile        *os.File
+	logBuffer      = make([]FileInfo, 0, 1000) // buffer for last 1000 entries
+	logBufferMu    sync.RWMutex
+	httpClient     = &http.Client{Timeout: 10 * time.Second}
+	notAFile       = errors.New("invalid file path, must be a file")
+	isRunning      bool
+	serviceWg      sync.WaitGroup
+	serviceStopper chan struct{}
 )
 
 // --------------- COMMANDS --------------- //
@@ -251,6 +254,10 @@ func startHTTPServer() {
 	http.HandleFunc("/help", helpCommandsHandler)
 	http.HandleFunc("/query", commandQueryHandler)
 	http.HandleFunc("/execute", commandExecuteHandler)
+
+	http.HandleFunc("/start", startServiceHandler)
+	http.HandleFunc("/stop", stopServiceHandler)
+	http.HandleFunc("/logs", logsHandler)
 
 	log.Printf("Starting HTTP server on port %d\n", config.Port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil); err != nil {
@@ -643,22 +650,29 @@ func executeCommand(command string, params map[string]string) (interface{}, erro
 * workerThread - this loops through the commands in queue and is to run continuous listening to any commandQueue
  */
 func workerThread() {
-	//range commands executed
-	for cmd := range commandQueue {
-		switch cmd.Type {
-		// check files command and print file info
-		case "CHECK_DIRECTORY_FILES":
-			if filePath, ok := cmd.Data.(string); ok {
-				fileInfo := fetchFilesInfo(filePath)
-				if fileInfo != nil {
-					// print the result file information
-					logFileInfo(*fileInfo)
-					//send to api the file info
-					sendToAPI(*fileInfo)
+	defer serviceWg.Done()
+	for {
+		select {
+		case cmd := <-commandQueue:
+			//range commands executed
+
+			switch cmd.Type {
+			// check files command and print file info
+			case "CHECK_DIRECTORY_FILES":
+				if filePath, ok := cmd.Data.(string); ok {
+					fileInfo := fetchFilesInfo(filePath)
+					if fileInfo != nil {
+						// print the result file information
+						logFileInfo(*fileInfo)
+						//send to api the file info
+						sendToAPI(*fileInfo)
+					}
 				}
+			default:
+				fmt.Printf("Unknown command type: %s\n", cmd.Type)
 			}
-		default:
-			fmt.Printf("Unknown command type: %s\n", cmd.Type)
+		case <-serviceStopper:
+			return
 		}
 	}
 }
@@ -669,26 +683,31 @@ timeThread - this runs every minute checking all files in the specified director
 - It then calls the commandQueue looping through
 */
 func timerThread() {
+	defer serviceWg.Done()
 	//check this thread every minute
 	ticker := time.NewTicker(time.Duration(config.CheckInterval) * time.Second)
 	defer ticker.Stop()
 
 	for {
-		<-ticker.C
-		err := filepath.Walk(config.Directory, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if !info.IsDir() {
-				commandQueue <- Command{
-					Type: "CHECK_DIRECTORY_FILES",
-					Data: path,
+		select {
+		case <-ticker.C:
+			err := filepath.Walk(config.Directory, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
 				}
+				if !info.IsDir() {
+					commandQueue <- Command{
+						Type: "CHECK_DIRECTORY_FILES",
+						Data: path,
+					}
+				}
+				return nil
+			})
+			if err != nil {
+				log.Printf("Error walking through directory: %v\n", err)
 			}
-			return nil
-		})
-		if err != nil {
-			log.Printf("Error walking through directory: %v\n", err)
+		case <-serviceStopper:
+			return
 		}
 	}
 }
@@ -771,5 +790,32 @@ func toHumanReadableTimeDiff(val string) string {
 		return fmt.Sprintf("%d hours %d minutes ago", hours, minutes%60)
 	default:
 		return fmt.Sprintf("%d days %d hours ago", days, hours%24)
+	}
+}
+
+// UI
+func startServiceHandler(w http.ResponseWriter, r *http.Request) {
+	if !isRunning {
+		isRunning = true
+		serviceStopper = make(chan struct{})
+		serviceWg.Add(2)
+		go workerThread()
+		go timerThread()
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Service is already running"))
+	}
+}
+
+func stopServiceHandler(w http.ResponseWriter, r *http.Request) {
+	if isRunning {
+		isRunning = false
+		close(serviceStopper)
+		serviceWg.Wait()
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Service is not running"))
 	}
 }
