@@ -1,4 +1,6 @@
-directory: "/home/nate/Desktop"
-check_interval: 60
+directory: "/home/nate/Desktop/test"
+check_interval: 5
 queue_size: 100
 port: 4000
+api_port: 4041
+api_endpoint: "http://localhost:4041/file-updates"
