@@ -1,135 +1,101 @@
 package main
 
-import (
-	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	"net/http"
-	"time"
-)
-
-type MyWindow struct {
-	*walk.MainWindow
-	logView   *walk.TextEdit
-	startBtn  *walk.PushButton
-	stopBtn   *walk.PushButton
-	isRunning bool
-}
-
-type FileInfo struct {
-	Uid       string `json:"uid"`
-	Path      string `json:"path"`
-	Directory string `json:"directory"`
-	Filename  string `json:"filename"`
-	Mtime     string `json:"mtime"`
-	ATime     string `json:"atime"`
-	CTime     string `json:"ctime"`
-	Size      string `json:"size"`
-	Type      string `json:"type"`
-	Mode      string `json:"mode"`
-}
-
-func main() {
-	mw := &MyWindow{isRunning: false}
-
-	if err := (MainWindow{
-		AssignTo: &mw.MainWindow,
-		Title:    "File Monitor Service",
-		MinSize:  Size{600, 400},
-		Layout:   VBox{},
-		Children: []Widget{
-			PushButton{
-				AssignTo: &mw.startBtn,
-				Text:     "Start",
-				OnClicked: func() {
-					mw.startService()
-				},
-			},
-			PushButton{
-				AssignTo: &mw.stopBtn,
-				Text:     "Stop",
-				Enabled:  false,
-				OnClicked: func() {
-					mw.stopService()
-				},
-			},
-			TextEdit{
-				AssignTo: &mw.logView,
-				ReadOnly: true,
-				VScroll:  true,
-			},
-		},
-	}.Create()); err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	mw.Run()
-}
-
-func (mw *MyWindow) startService() {
-	resp, err := http.Get("http://localhost:4000/start")
-	if err != nil {
-		walk.MsgBox(mw, "Error", "Failed to start service: "+err.Error(), walk.MsgBoxIconError)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		mw.isRunning = true
-		mw.startBtn.SetEnabled(false)
-		mw.stopBtn.SetEnabled(true)
-		mw.updateLogs()
-	} else {
-		walk.MsgBox(mw, "Error", "Failed to start service", walk.MsgBoxIconError)
-	}
-}
-
-func (mw *MyWindow) stopService() {
-	resp, err := http.Get("http://localhost:4000/stop")
-	if err != nil {
-		walk.MsgBox(mw, "Error", "Failed to stop service: "+err.Error(), walk.MsgBoxIconError)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		mw.isRunning = false
-		mw.startBtn.SetEnabled(true)
-		mw.stopBtn.SetEnabled(false)
-	} else {
-		walk.MsgBox(mw, "Error", "Failed to stop service", walk.MsgBoxIconError)
-	}
-}
-
-func (mw *MyWindow) updateLogs() {
-	go func() {
-		for mw.isRunning {
-			resp, err := http.Get("http://localhost:4000/logs")
-			if err != nil {
-				continue
-			}
-			defer resp.Body.Close()
-
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				continue
-			}
-
-			var logs []FileInfo
-			err = json.Unmarshal(body, &logs)
-			if err != nil {
-				continue
-			}
-
-			mw.Synchronize(func() {
-				mw.logView.SetText("")
-				for _, log := range logs {
-					mw.logView.AppendText(fmt.Sprintf("File: %s, Modified: %s\r\n", log.Path, log.Mtime))
-				}
-			})
-
-			time.Sleep(5 * time.Second)
-		}
-	}()
-}
+//
+//import (
+//	"encoding/json"
+//	"fmt"
+//	"log"
+//	"net/http"
+//	"sync"
+//	"time"
+//)
+//
+//type FileInfo struct {
+//	Uid       string `json:"uid"`
+//	Path      string `json:"path"`
+//	Directory string `json:"directory"`
+//	Filename  string `json:"filename"`
+//	Mtime     string `json:"mtime"`
+//	ATime     string `json:"atime"`
+//	CTime     string `json:"ctime"`
+//	Size      string `json:"size"`
+//	Type      string `json:"type"`
+//	Mode      string `json:"mode"`
+//}
+//
+//var (
+//	isRunning bool
+//	mu        sync.Mutex //ensure thread safe access to my variables
+//	logs      []FileInfo
+//)
+//
+//func main() {
+//	http.HandleFunc("/start", startHandler)
+//	http.HandleFunc("/stop", stopHandler)
+//	http.HandleFunc("/logs", logsHandler)
+//
+//	log.Println("Starting server on :4070")
+//	log.Fatal(http.ListenAndServe(":4070", nil))
+//}
+//
+//// startHandler - starts the file monitoring service
+//func startHandler(w http.ResponseWriter, r *http.Request) {
+//	mu.Lock()
+//	defer mu.Unlock()
+//
+//	if isRunning {
+//		http.Error(w, "Service is already running", http.StatusBadRequest)
+//		return
+//	}
+//
+//	isRunning = true
+//	go monitorFiles()
+//
+//	w.WriteHeader(http.StatusOK)
+//	fmt.Fprint(w, "File monitoring service started")
+//}
+//
+//// stopHandler -stopping the file monitoring service
+//func stopHandler(w http.ResponseWriter, r *http.Request) {
+//	mu.Lock()
+//	defer mu.Unlock()
+//
+//	if !isRunning {
+//		http.Error(w, "service is not running", http.StatusBadRequest)
+//		return
+//	}
+//
+//	isRunning = false
+//
+//	w.WriteHeader(http.StatusOK)
+//	fmt.Fprint(w, "file monitoring service stopped")
+//}
+//
+//// logsHandler -log result
+//func logsHandler(w http.ResponseWriter, r *http.Request) {
+//	mu.Lock()
+//	defer mu.Unlock()
+//
+//	w.Header().Set("Content-Type", "application/json")
+//	json.NewEncoder(w).Encode(logs)
+//}
+//
+//func monitorFiles() {
+//	for isRunning {
+//		mu.Lock()
+//		// simulating file monitoring
+//		newLog := FileInfo{ //test
+//			Uid:       "123",
+//			Path:      "/path/to/file.txt",
+//			Directory: "/path/to",
+//			Filename:  "file.txt",
+//			Mtime:     time.Now().Format(time.RFC3339),
+//			Size:      "1024",
+//			Type:      "file",
+//		}
+//		logs = append(logs, newLog)
+//		mu.Unlock()
+//
+//		time.Sleep(5 * time.Second)
+//	}
+//}
