@@ -88,8 +88,15 @@ func (app *application) timerThread() error {
 		app.appendLog("Timer thread stopped\n")
 	}()
 
+	// Ensure CheckInterval is positive
+	checkInterval := time.Duration(app.config.CheckInterval) * time.Second
+	if checkInterval <= 0 {
+		checkInterval = time.Minute // Default to 1 minute if not set or invalid
+		app.appendLog(fmt.Sprintf("Warning: Invalid CheckInterval (%d). Using default of 1 minute.\n", app.config.CheckInterval))
+	}
+
 	//check this thread every minute
-	ticker := time.NewTicker(time.Duration(app.config.CheckInterval) * time.Second)
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
 	for {
