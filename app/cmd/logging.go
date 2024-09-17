@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/nathanmbicho/savannahtech/filetracker/app/internal/service/filetrack"
+	"github.com/thespider911/filetrackermodification/app/internal/service/filetrack"
 	"log"
 	"os"
 )

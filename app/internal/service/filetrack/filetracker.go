@@ -20,11 +20,16 @@ type FileInfo struct {
 	Permission   string `json:"mode"`
 }
 
-type FileTracker struct {
+// FileTracker interface defines the contract for file tracking operations
+type FileTracker interface {
+	FetchFilesInfo(filePath string) (*FileInfo, error)
 }
 
+// OsqueryFileTracker implements FileTracker using osquery
+type OsqueryFileTracker struct{}
+
 // FetchFilesInfo - get files info from querying the path returning fileInfo
-func (data FileTracker) FetchFilesInfo(filePath string) (*FileInfo, error) {
+func (ft OsqueryFileTracker) FetchFilesInfo(filePath string) (*FileInfo, error) {
 	var fileInfos []FileInfo
 
 	// osquery query and command run
@@ -42,10 +47,15 @@ func (data FileTracker) FetchFilesInfo(filePath string) (*FileInfo, error) {
 		return nil, err
 	}
 
-	// return all file infos
+	// return file info
 	if len(fileInfos) > 0 {
 		return &fileInfos[0], nil
 	}
 
 	return nil, nil
+}
+
+// NewFileTracker creates a new instance of OsqueryFileTracker
+func NewFileTracker() FileTracker {
+	return OsqueryFileTracker{}
 }

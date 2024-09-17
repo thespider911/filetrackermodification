@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -16,10 +18,18 @@ import (
 - it loops the checking directory files command
 */
 func (app *application) workerThread() error {
-	defer app.wg.Done()
+	defer func() {
+		app.wg.Done()
+		atomic.AddInt32(&app.wgCount, -1)
+		app.appendLog("Worker thread stopped\n")
+	}()
+
 	for {
 		select {
-		case cmd := <-app.commandQueue:
+		case cmd, ok := <-app.commandQueue:
+			if !ok {
+				return nil
+			}
 			switch cmd.Type {
 			// check files command and print file info
 			case "CHECK_DIRECTORY_FILES":
@@ -36,15 +46,29 @@ func (app *application) workerThread() error {
 							return err
 						}
 
+						// Update UI logs
+						jsonData, err := app.JSON(fileInfo)
+						if err != nil {
+							app.errorLog.Printf("Error marshalling file info to JSON: %v\n", err)
+						}
+
+						// Log the JSON string
+						app.appendLog(fmt.Sprintf("File Info:\n%s", string(jsonData)))
+
 						//send to api the file info
 						err = app.sendToAPI(*fileInfo)
 						if err != nil {
-							return err
+							// if the api is not running
+							if errors.Is(err, syscall.ECONNREFUSED) {
+								app.errorLog.Println("api service not running")
+							} else {
+								app.errorLog.Printf("Error sending to API: %v\n", err)
+							}
 						}
 					}
 				}
 			default:
-				return errors.New(fmt.Sprintf("unknown command type: %s\n", cmd.Type))
+				app.errorLog.Printf("Unknown command type: %s\n", cmd.Type)
 			}
 		case <-app.serviceStopper:
 			return nil
@@ -58,7 +82,12 @@ timeThread - this runs every minute checking all files in the specified director
 - It then calls the commandQueue looping through
 */
 func (app *application) timerThread() error {
-	defer app.wg.Done()
+	defer func() {
+		app.wg.Done()
+		atomic.AddInt32(&app.wgCount, -1)
+		app.appendLog("Timer thread stopped\n")
+	}()
+
 	//check this thread every minute
 	ticker := time.NewTicker(time.Duration(app.config.CheckInterval) * time.Second)
 	defer ticker.Stop()

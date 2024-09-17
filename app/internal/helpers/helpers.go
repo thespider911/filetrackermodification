@@ -1,29 +1,11 @@
-package service
+package helpers
 
 import (
-	"errors"
 	"fmt"
-	"github.com/thespider911/filetrackermodification/app/internal/service/command"
-	"github.com/thespider911/filetrackermodification/app/internal/service/filetrack"
 	"log"
 	"strconv"
 	"time"
 )
-
-var ErrNoEmptyFilePath = errors.New("models: no file path provided")
-var ErrNoFile = errors.New("models: no such existing file record found")
-
-type Service struct {
-	FileTracker    filetrack.FileTracker
-	CommandRunFile command.CommandRunFile
-}
-
-func NewService() Service {
-	return Service{
-		FileTracker:    filetrack.NewFileTracker(),
-		CommandRunFile: command.NewCommandFileInfo(),
-	}
-}
 
 // --------------- HELPERS --------------- //
 
