@@ -74,7 +74,10 @@ make run/app
 This command runs the application with the osquery socket: You need to install osquery first in your system.
 
 ```
-go run ./app/cmd --socket /home/directory/.osquery/shell.em
+go run ./app/cmd --socket /home/directory/path/to/.osquery/shell.em
+```
+update the .osquery path in your machine. The result is logged in a logger file and can be accessed by running the api
+
 ```
 
 ### Running Tests
@@ -116,6 +119,8 @@ The application uses the Fyne library to create a simple native UI dialog box fo
 - I did not manage to implement Windows-specific features and MSI packaging due to not able to secure a windows machine, everyone around me are linux based.
 The UI component using Fyne has been tested on Linux but not on Windows.
 - Can always implement more comprehensive error handling and recovery mechanisms and more unit tests to cover edge cases and improve code coverage.
+
+`Incase the application fails due to ubuntu window, copy `main.go` in gui folder and replace `main.go` in `app/cmd` to test the feature`
 
 ## Contributing
 Please submit pull requests or open issues to discuss proposed changes.

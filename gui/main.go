@@ -2,100 +2,128 @@ package main
 
 //
 //import (
-//	"encoding/json"
-//	"fmt"
+//	"bytes"
+//	"github.com/thespider911/filetrackermodification/app/internal/config"
+//	"github.com/thespider911/filetrackermodification/app/internal/service"
+//	"github.com/thespider911/filetrackermodification/app/internal/service/filetrack"
 //	"log"
 //	"net/http"
+//	"os"
 //	"sync"
 //	"time"
 //)
 //
-//type FileInfo struct {
-//	Uid       string `json:"uid"`
-//	Path      string `json:"path"`
-//	Directory string `json:"directory"`
-//	Filename  string `json:"filename"`
-//	Mtime     string `json:"mtime"`
-//	ATime     string `json:"atime"`
-//	CTime     string `json:"ctime"`
-//	Size      string `json:"size"`
-//	Type      string `json:"type"`
-//	Mode      string `json:"mode"`
+//type Command struct {
+//	Type string
+//	Data interface{}
 //}
 //
-//var (
-//	isRunning bool
-//	mu        sync.Mutex //ensure thread safe access to my variables
-//	logs      []FileInfo
-//)
+//type application struct {
+//	infoLog        *log.Logger
+//	errorLog       *log.Logger
+//	config         config.Config
+//	wg             sync.WaitGroup
+//	wgCount        int32
+//	logFile        *os.File
+//	service        service.Service
+//	commandQueue   chan Command
+//	logBufferMu    sync.RWMutex
+//	logBuffer      []filetrack.FileInfo
+//	httpClient     *http.Client
+//	isRunning      bool
+//	serviceStopper chan struct{}
+//	logChan        chan string
+//}
 //
 //func main() {
-//	http.HandleFunc("/start", startHandler)
-//	http.HandleFunc("/stop", stopHandler)
-//	http.HandleFunc("/logs", logsHandler)
+//	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime)
+//	errorLog := log.New(os.Stdout, "ERROR\t", log.Ldate|log.Ltime)
 //
-//	log.Println("Starting server on :4070")
-//	log.Fatal(http.ListenAndServe(":4070", nil))
-//}
-//
-//// startHandler - starts the file monitoring service
-//func startHandler(w http.ResponseWriter, r *http.Request) {
-//	mu.Lock()
-//	defer mu.Unlock()
-//
-//	if isRunning {
-//		http.Error(w, "Service is already running", http.StatusBadRequest)
-//		return
+//	// config instance
+//	cfg, err := config.GetConfig()
+//	if err != nil {
+//		errorLog.Fatal(err)
 //	}
 //
-//	isRunning = true
-//	go monitorFiles()
-//
-//	w.WriteHeader(http.StatusOK)
-//	fmt.Fprint(w, "File monitoring service started")
-//}
-//
-//// stopHandler -stopping the file monitoring service
-//func stopHandler(w http.ResponseWriter, r *http.Request) {
-//	mu.Lock()
-//	defer mu.Unlock()
-//
-//	if !isRunning {
-//		http.Error(w, "service is not running", http.StatusBadRequest)
-//		return
+//	app := &application{
+//		infoLog:        infoLog,
+//		errorLog:       errorLog,
+//		config:         *cfg,
+//		service:        service.NewService(),
+//		commandQueue:   make(chan Command, cfg.QueueSize),
+//		logBuffer:      make([]filetrack.FileInfo, 0, 1000),
+//		httpClient:     &http.Client{Timeout: 10 * time.Second},
+//		isRunning:      true,
+//		serviceStopper: make(chan struct{}),
+//		logChan:        make(chan string, 100),
 //	}
 //
-//	isRunning = false
+//	//set up logging
+//	app.logging()
+//	defer app.logFile.Close()
 //
-//	w.WriteHeader(http.StatusOK)
-//	fmt.Fprint(w, "file monitoring service stopped")
-//}
+//	// waitGroup to run services on diff threads
+//	var wg sync.WaitGroup
+//	wg.Add(3) //
 //
-//// logsHandler -log result
-//func logsHandler(w http.ResponseWriter, r *http.Request) {
-//	mu.Lock()
-//	defer mu.Unlock()
-//
-//	w.Header().Set("Content-Type", "application/json")
-//	json.NewEncoder(w).Encode(logs)
-//}
-//
-//func monitorFiles() {
-//	for isRunning {
-//		mu.Lock()
-//		// simulating file monitoring
-//		newLog := FileInfo{ //test
-//			Uid:       "123",
-//			Path:      "/path/to/file.txt",
-//			Directory: "/path/to",
-//			Filename:  "file.txt",
-//			Mtime:     time.Now().Format(time.RFC3339),
-//			Size:      "1024",
-//			Type:      "file",
+//	// start worker thread (running continuous executing available commands)
+//	go func() {
+//		defer wg.Done()
+//		if err := app.workerThread(); err != nil {
+//			app.errorLog.Println(err)
 //		}
-//		logs = append(logs, newLog)
-//		mu.Unlock()
+//	}()
 //
-//		time.Sleep(5 * time.Second)
+//	// start timer thread (which is checking files modified in one minute lapse sending commands)
+//	go func() {
+//		defer wg.Done()
+//		if err := app.timerThread(); err != nil {
+//			app.errorLog.Println(err)
+//		}
+//	}()
+//
+//	// start HTTP server
+//	go func() {
+//		defer wg.Done()
+//		if err := app.serveHttp(); err != nil {
+//			app.errorLog.Println(err)
+//			os.Exit(1)
+//		}
+//	}()
+//
+//	wg.Wait()
+//}
+//
+//// --------------- API --------------- //
+//
+//// sentToApi - convert file into to json then send as response to api endpoint that it has access
+//func (app *application) sendToAPI(info filetrack.FileInfo) error {
+//	//file info to json
+//	jsonData, err := app.JSON(info)
+//	if err != nil {
+//		return err
+//	}
+//
+//	// use httpClient to send a post response to api endpoint
+//	resp, err := app.httpClient.Post(app.config.APIEndpoint, "application/json", bytes.NewBuffer(jsonData))
+//	if err != nil {
+//		return err
+//	}
+//	defer resp.Body.Close()
+//
+//	if resp.StatusCode != http.StatusOK {
+//		return err
+//	}
+//
+//	return nil
+//}
+//
+//func (app *application) appendLog(text string) {
+//	select {
+//	case app.logChan <- text:
+//		// Message sent successfully
+//	default:
+//		// Channel is full, log to error log
+//		app.errorLog.Printf("Log channel full, couldn't log: %s", text)
 //	}
 //}
