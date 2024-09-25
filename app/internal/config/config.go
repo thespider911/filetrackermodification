@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"github.com/go-playground/validator/v10"
 	"github.com/spf13/viper"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 // Config -  and validate
@@ -37,9 +40,25 @@ func LoadConfig() error {
 		return fmt.Errorf("error reading config file - %w", err)
 	}
 
+	// Get the home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("error getting home directory - %w", err)
+	}
+
+	// Replace {{.HomeDir}} placeholder in all string values
+	for key, value := range viper.AllSettings() {
+		if strValue, ok := value.(string); ok {
+			viper.Set(key, strings.Replace(strValue, "{{.HomeDir}}", homeDir, -1))
+		}
+	}
+
 	if err := viper.Unmarshal(&config); err != nil {
 		return fmt.Errorf("error unmarshalling config - %w", err)
 	}
+
+	// Ensure the directory path uses the correct separators for the OS
+	config.Directory = filepath.FromSlash(config.Directory)
 
 	validate := validator.New()
 	if err := validate.Struct(config); err != nil {

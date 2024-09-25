@@ -1,4 +1,4 @@
-directory: "/home/nate/Desktop/test"
+directory: "{{.HomeDir}}/Desktop/test_tracker"
 check_interval: 5
 queue_size: 100
 http_port: 4000

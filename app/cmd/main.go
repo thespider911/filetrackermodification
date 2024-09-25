@@ -10,6 +10,7 @@ import (
 	"github.com/thespider911/filetrackermodification/app/internal/config"
 	"github.com/thespider911/filetrackermodification/app/internal/service"
 	"github.com/thespider911/filetrackermodification/app/internal/service/filetrack"
+	"github.com/thespider911/filetrackermodification/app/internal/testutil"
 	"log"
 	"net/http"
 	"os"
@@ -43,6 +44,12 @@ type application struct {
 }
 
 func main() {
+	//setup data to test
+	if err := testutil.SetupTestEnvironment(); err != nil {
+		fmt.Printf("Error setting up test environment: %v\n", err)
+		os.Exit(1)
+	}
+
 	infoLog := log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime)
 	errorLog := log.New(os.Stdout, "ERROR\t", log.Ldate|log.Ltime)
 
@@ -106,7 +113,9 @@ func main() {
 	go application.updateLogs()
 
 	// start HTTP server
+	application.wg.Add(1)
 	go func() {
+		defer application.wg.Done()
 		if err := application.serveHttp(); err != nil {
 			application.errorLog.Println(err)
 			os.Exit(1)
@@ -118,6 +127,8 @@ func main() {
 
 	// Run the UI
 	myWindow.ShowAndRun()
+
+	application.wg.Wait()
 }
 
 //START AND STOP SERVICE
