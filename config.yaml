@@ -1,5 +1,5 @@
 directory: "{{.HomeDir}}/Desktop/test_tracker"
-check_interval: 5
+check_interval: 60
 queue_size: 100
 http_port: 4000
 api_port: 4041

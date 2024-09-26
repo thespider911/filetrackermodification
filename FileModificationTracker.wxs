@@ -1,0 +1,22 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+	<Package Name="FileModificationTracker"
+		Manufacturer="SavannaTechByNathanMbicho"
+		Version="1.0.0.0"
+		UpgradeCode="a882f3ec-dd3f-4c77-9721-a95a1d027a2f">
+			<MajorUpgrade DowngradeErrorMessage="A newer version of FileModificationTracker is already installed." />
+
+		<Feature Id="Main">
+			<ComponentGroupRef Id="ProductComponents" />
+		</Feature>
+
+		<StandardDirectory Id="ProgramFiles64Folder">
+			<Directory Id="INSTALLFOLDER" Name="FileModificationTracker" />
+		</StandardDirectory>
+
+		<ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+			<Component>
+				<File Source="bin/windows_amd64/FileModificationTracker.exe" KeyPath="yes" />
+			</Component>
+		</ComponentGroup>
+	</Package>
+</Wix>

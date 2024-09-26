@@ -34,6 +34,8 @@ app/
 │   │   └── config.go
 │   ├── helpers/
 │   │   └── helpers.go
+│   ├── testutil/
+│   │   └── setup.go
 │   └── service/
 │       ├── service.go
 │       ├── filetracker.go
@@ -41,6 +43,7 @@ app/
 │           └── commands.go
 └── main.go
 config.yaml
+install.wxs
 Makefile
 test_api.go
 ```
@@ -49,7 +52,7 @@ test_api.go
 The application is configured using a `config.yaml` file:
 
 ```yaml
-directory: "/path/to/directory"
+directory: "{{.HomeDir}}/Desktop/test_tracker"
 check_interval: 5
 queue_size: 100
 http_port: 4000
@@ -71,18 +74,41 @@ To run the application:
 make run/app
 ```
 
-This command runs the application with the osquery socket: You need to install osquery first in your system.
+This command runs the application with the osquery socket: 
+You need to install `osquery` first in your system.
 
 ```
-go run ./app/cmd --socket /home/directory/path/to/.osquery/shell.em
+go run ./app/cmd --socket \\.\pipe\shell.em
 ```
 update the .osquery path in your machine. The result is logged in a logger file and can be accessed by running the api
 
+
+`
+NOTE::When running the program, make sure you have a test_data folder on your route project and you can add as many files here before running the program. 
+This folder with files, using `app/cmd/testutil/setup.go` will create a folder on your os desktop named `test_tracker` which will be used to read the files from, for this test program.`
+
+### Building the Application
+To run the application:
+
+```
+make build/api
+```
+
+This command will create two executables, on for go and an .exe for windows
+
+```
+go build -ldflags=${linker_flags} -o=./bin/FileModificationTracker ./app/cmd
+
+CC=x86_64-w64-mingw32-gcc \
+CXX=x86_64-w64-mingw32-g++ \
+GOOS=windows \
+GOARCH=amd64 \
+CGO_ENABLED=1 \
+go build -ldflags=${linker_flags} -o=./bin/windows_amd64/FileModificationTracker.exe ./app/cmd
 ```
 
 ### Running Tests
 To run tests:
-
 ```
 make test
 ```
@@ -92,6 +118,51 @@ This command runs the tests with race detection:
 ```
 go test -v -race ./app/cmd/...
 ```
+
+## Window Installer
+To install the program:
+
+After building the application, a folder `bin` will be created with the `.exe` for windows in `bin/windows_amd64/FileModificationTracker.exe`
+
+To create installer for this, make sure you have `wix` version 5 installed then run this command on the project root where we have this `installer.wxs` file.
+```
+wix build FileModificationTracker.wxs
+```
+
+This will create the installation files and you can see `FileModificationTracker.msi` on the project root.
+```
+FileModificationTracker.msi
+```
+(You can delete the one I have generated and create another one)
+
+Double click on this  `FileModificationTracker.msi` and a `FileModificationTracker` will be installed on your machine.  
+To confirm this you can check on the system Apps installed where you can also click to `unistall` the program.
+
+Once the program is created, go to: ` Program Files(x86) `
+
+and look for `FileModificationTracker`. Open the folder and before you double click to run the program, copy the `test_data` folder in project root (for testing purpose).
+
+This will create the `test_tracker` folder in your desktop where the program will look for files modified.
+also copy the `config.yaml` to the same FileModificationTracker program folder.
+
+Your Program Files(x86)/FileModificationTracker should have.
+
+```
+NOTE:: MAKE SURE THE USER HAS ALL PERMISSION TO THIS INSTALLATION FOLDER.
+```
+
+````
+test_data
+
+config.yaml
+
+FileModificationTracker
+````
+
+Now double click the `FileModificationTracker` to run the program.
+
+
+
 
 ## API Endpoints
 - Health Check: `/health` this is to check the application if is running ok
@@ -116,11 +187,8 @@ The test API provides two endpoints:
 The application uses the Fyne library to create a simple native UI dialog box for starting/stopping the service and viewing logs.
 
 ## Limitations on Features
-- I did not manage to implement Windows-specific features and MSI packaging due to not able to secure a windows machine, everyone around me are linux based.
-The UI component using Fyne has been tested on Linux but not on Windows.
+- Windows depending on your set up might require you to download some programs for this to learn especially fynne setup.
 - Can always implement more comprehensive error handling and recovery mechanisms and more unit tests to cover edge cases and improve code coverage.
-
-`Incase the application fails due to ubuntu window, copy `main.go` in gui folder and replace `main.go` in `app/cmd` to test the feature`
 
 ## Contributing
 Please submit pull requests or open issues to discuss proposed changes.

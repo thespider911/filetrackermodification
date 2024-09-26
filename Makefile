@@ -1,6 +1,6 @@
 run/app:
 	@echo 'Running app...'
-	@go run ./app/cmd --socket /home/nate/.osquery/shell.em
+	@go run ./app/cmd --socket \\.\pipe\shell.em
 
 build/api:
 	@echo 'Building app...'
