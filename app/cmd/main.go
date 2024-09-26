@@ -6,11 +6,13 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/thespider911/filetrackermodification/app/internal/config"
 	"github.com/thespider911/filetrackermodification/app/internal/service"
 	"github.com/thespider911/filetrackermodification/app/internal/service/filetrack"
 	"github.com/thespider911/filetrackermodification/app/internal/testutil"
+	"image/color"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +21,34 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+// customTheme - theme with black background and white text
+type customTheme struct{}
+
+var _ fyne.Theme = (*customTheme)(nil)
+
+func (m customTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DefaultTheme().Icon(name)
+}
+
+func (m customTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	if name == theme.ColorNameBackground {
+		if variant == theme.VariantLight {
+			return color.White
+		}
+		return color.Black
+	}
+
+	return theme.DefaultTheme().Color(name, variant)
+}
+
+func (m customTheme) Font(style fyne.TextStyle) fyne.Resource {
+	return theme.DefaultTheme().Font(style)
+}
+
+func (m customTheme) Size(name fyne.ThemeSizeName) float32 {
+	return theme.DefaultTheme().Size(name)
+}
 
 type Command struct {
 	Type string
@@ -84,6 +114,7 @@ func main() {
 
 	// Create Fyne application
 	myApp := app.New()
+	myApp.Settings().SetTheme(&customTheme{}) // custom theme
 	myWindow := myApp.NewWindow("File Tracker Service")
 
 	// Create UI elements
