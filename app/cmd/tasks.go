@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -18,11 +17,7 @@ import (
 - it loops the checking directory files command
 */
 func (app *application) workerThread() error {
-	defer func() {
-		app.wg.Done()
-		atomic.AddInt32(&app.wgCount, -1)
-		app.appendLog("Worker thread stopped\n")
-	}()
+	defer app.appendLog("Worker thread stopped\n")
 
 	for {
 		select {
@@ -36,31 +31,31 @@ func (app *application) workerThread() error {
 				if filePath, ok := cmd.Data.(string); ok {
 					fileInfo, err := app.service.FileTracker.FetchFilesInfo(filePath)
 					if err != nil {
-						return err
+						app.errorLog.Printf("Error fetching file info: %v\n", err)
+						continue
 					}
 
 					if fileInfo != nil {
 						// print the result file information
-						err = app.logFileInfo(*fileInfo)
-						if err != nil {
-							return err
+						if err := app.logFileInfo(*fileInfo); err != nil {
+							app.errorLog.Printf("Error logging file info: %v\n", err)
+							continue
 						}
 
 						// Update UI logs
 						jsonData, err := app.JSON(fileInfo)
 						if err != nil {
 							app.errorLog.Printf("Error marshalling file info to JSON: %v\n", err)
+						} else {
+							// Log the JSON string
+							app.appendLog(fmt.Sprintf("File Info:\n%s", string(jsonData)))
 						}
 
-						// Log the JSON string
-						app.appendLog(fmt.Sprintf("File Info:\n%s", string(jsonData)))
-
 						//send to api the file info
-						err = app.sendToAPI(*fileInfo)
-						if err != nil {
+						if err := app.sendToAPI(*fileInfo); err != nil {
 							// if the api is not running
 							if errors.Is(err, syscall.ECONNREFUSED) {
-								app.errorLog.Println("api service not running")
+								app.errorLog.Println("API service not running")
 							} else {
 								app.errorLog.Printf("Error sending to API: %v\n", err)
 							}
@@ -82,11 +77,7 @@ timeThread - this runs every minute checking all files in the specified director
 - It then calls the commandQueue looping through
 */
 func (app *application) timerThread() error {
-	defer func() {
-		app.wg.Done()
-		atomic.AddInt32(&app.wgCount, -1)
-		app.appendLog("Timer thread stopped\n")
-	}()
+	defer app.appendLog("Timer thread stopped\n")
 
 	// Ensure CheckInterval is positive
 	checkInterval := time.Duration(app.config.CheckInterval) * time.Second
@@ -102,24 +93,29 @@ func (app *application) timerThread() error {
 	for {
 		select {
 		case <-ticker.C:
-			err := filepath.Walk(app.config.Directory, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-
-				if !info.IsDir() {
-					app.commandQueue <- Command{
-						Type: "CHECK_DIRECTORY_FILES",
-						Data: path,
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				return err
+			if err := app.checkDirectory(); err != nil {
+				app.errorLog.Printf("Error checking directory: %v\n", err)
 			}
 		case <-app.serviceStopper:
 			return nil
 		}
 	}
+}
+
+// checkDirectory - check if the directory exists and is accessible
+func (app *application) checkDirectory() error {
+	return filepath.Walk(app.config.Directory, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() {
+			select {
+			case app.commandQueue <- Command{Type: "CHECK_DIRECTORY_FILES", Data: path}:
+			default:
+				app.errorLog.Printf("Command queue is full, skipping file: %s\n", path)
+			}
+		}
+		return nil
+	})
 }

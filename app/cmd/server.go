@@ -19,28 +19,51 @@ func (app *application) serveHttp() error {
 		ErrorLog: app.errorLog,
 	}
 
-	//graceful shutdown
-	shutDownErrChan := make(chan error)
+	// done channel to signal when all cleanup is complete
+	done := make(chan bool)
+
+	// add context that we can cancel  with
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// start a goroutine for graceful shutdown
 	go func() {
-		quitChan := make(chan os.Signal, 1)
-		signal.Notify(quitChan, syscall.SIGINT, syscall.SIGTERM)
-		<-quitChan
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		app.infoLog.Println("Server is shutting down...")
 
-		shutDownErrChan <- srv.Shutdown(ctx)
+		// cancel the context to signal all goroutines to stop
+		cancel()
+
+		// attempt to shut down the server gracefully
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			app.errorLog.Printf("Server shutdown error: %v", err)
+		}
+
+		// stop the service (this should stop worker and timer threads)
+		app.stopService()
+
+		close(done)
 	}()
 
-	//starting server
 	app.infoLog.Printf("Starting server on port %d", app.config.HttpPort)
-	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+
+	// start the service (this should start worker and timer threads)
+	app.startService()
+
+	// start the server
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 
-	//stopping server
-	app.errorLog.Printf("Server stopped")
-	app.wg.Wait()
+	// wait for done signal
+	<-done
+	app.infoLog.Println("Server stopped")
 
 	return nil
 }
