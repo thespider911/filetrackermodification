@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/thespider911/filetrackermodification/app/internal/helpers"
 	"github.com/thespider911/filetrackermodification/app/internal/service/filetrack"
 	"log"
 	"os"
@@ -22,10 +23,10 @@ func (app *application) logging() {
 // logFileInfo - log to file and in-memory
 func (app *application) logFileInfo(fileInfo filetrack.FileInfo) error {
 	// update file result to readable info
-	fileInfo.ModifiedTime = app.toHumanReadableTime(fileInfo.ModifiedTime)
-	fileInfo.AccessedTime = app.toHumanReadableTime(fileInfo.AccessedTime)
-	fileInfo.ChangedTime = app.toHumanReadableTime(fileInfo.ChangedTime)
-	fileInfo.FileSize = app.toHumanReadableFileSize(fileInfo.FileSize)
+	fileInfo.ModifiedTime = helpers.ToHumanReadableTime(fileInfo.ModifiedTime)
+	fileInfo.AccessedTime = helpers.ToHumanReadableTime(fileInfo.AccessedTime)
+	fileInfo.ChangedTime = helpers.ToHumanReadableTime(fileInfo.ChangedTime)
+	fileInfo.FileSize = helpers.ToHumanReadableFileSize(fileInfo.FileSize)
 
 	//convert file info to json
 	js, err := app.JSON(fileInfo)

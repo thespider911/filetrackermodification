@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/thespider911/filetrackermodification/app/internal/helpers"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 var ErrNoFile = errors.New("models: no such existing file record found")
@@ -71,6 +73,37 @@ type CommandFileInfo struct{}
 // NewCommandFileInfo - new instance of CommandFileInfo
 func NewCommandFileInfo() CommandRunFile {
 	return &CommandFileInfo{}
+}
+
+// validatePath - check if the given path is valid, specific, exists, and is within the Desktop directory
+func (cf *CommandFileInfo) validatePath(path string) error {
+	// absolute path check
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("path must be absolute")
+	}
+
+	// check if the path contains any wildcards or patterns
+	if strings.ContainsAny(path, "*?[]") {
+		return fmt.Errorf("path must not contain wildcards or patterns")
+	}
+
+	// check if the path exists
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("path does not exist")
+	}
+
+	// check if the path is within the Desktop directory
+	desktopPath, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("unable to determine user's home directory: %v", err)
+	}
+	desktopPath = filepath.Join(desktopPath, "Desktop")
+
+	if !strings.HasPrefix(path, desktopPath) {
+		return fmt.Errorf("path must be within the Desktop directory")
+	}
+
+	return nil
 }
 
 // --------------- COMMANDS --------------- //
@@ -310,6 +343,11 @@ func (cf *CommandFileInfo) ExecuteCommand(command string, params map[string]stri
 	path, ok := params["path"]
 	if !ok {
 		return nil, fmt.Errorf("%s requires a 'path' parameter", command)
+	}
+
+	// Validate the path before executing the command
+	if err := cf.validatePath(path); err != nil {
+		return nil, fmt.Errorf("invalid path: %v", err)
 	}
 
 	switch command {
